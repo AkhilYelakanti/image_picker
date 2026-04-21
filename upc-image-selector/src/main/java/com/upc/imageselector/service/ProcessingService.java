@@ -1,7 +1,8 @@
 package com.upc.imageselector.service;
 
 import com.upc.imageselector.config.AppProperties;
-import com.upc.imageselector.exception.ProcessingException;
+import com.upc.imageselector.dto.LinksProcessingResultDto;
+import com.upc.imageselector.dto.UpcResultDto;
 import com.upc.imageselector.exception.ResourceNotFoundException;
 import com.upc.imageselector.model.*;
 import lombok.RequiredArgsConstructor;
@@ -40,10 +41,10 @@ public class ProcessingService {
         return status.get().getState() == ProcessingStatus.State.RUNNING;
     }
 
-    // ── trigger ───────────────────────────────────────────────────────────────
+    // ── file-based async trigger ──────────────────────────────────────────────
 
     /**
-     * Kicks off the full pipeline asynchronously.
+     * Kicks off the full pipeline asynchronously from the configured link file.
      * Throws {@link IllegalStateException} if already running.
      */
     public void startProcessing() {
@@ -63,51 +64,16 @@ public class ProcessingService {
     void runAsync() {
         ProcessingStatus s = status.get();
         try {
-            // ── 1. Download ──────────────────────────────────────────────────
             step(s, "Downloading images…");
             List<ImageInfo> allImages = downloadService.downloadAll((done, fail) -> {
                 s.setDownloadedCount(done);
                 s.setFailedDownloads(fail);
             });
-
             s.setTotalUrls(allImages.size());
-            log.info("Downloaded {} images ({} failed)",
-                    s.getDownloadedCount(), s.getFailedDownloads());
 
-            // ── 2. Group by UPC ──────────────────────────────────────────────
             step(s, "Grouping by UPC…");
-            Map<String, List<ImageInfo>> byUpc = allImages.stream()
-                    .filter(i -> i.getUpc() != null)
-                    .collect(Collectors.groupingBy(ImageInfo::getUpc,
-                            LinkedHashMap::new, Collectors.toList()));
+            Map<String, ProcessingResult> results = runPipelineCore(allImages, s);
 
-            s.setTotalUpcs(byUpc.size());
-            log.info("Found {} distinct UPCs", byUpc.size());
-
-            // ── 3. Score & select ────────────────────────────────────────────
-            step(s, "Scoring and selecting images…");
-            Path selectedDir = Path.of(props.getSelectedDir());
-            Files.createDirectories(selectedDir);
-
-            Map<String, ProcessingResult> results = new LinkedHashMap<>();
-
-            for (Map.Entry<String, List<ImageInfo>> entry : byUpc.entrySet()) {
-                String upc = entry.getKey();
-                List<ImageInfo> candidates = entry.getValue();
-                ProcessingResult result = selectBest(upc, candidates, selectedDir);
-                results.put(upc, result);
-                s.setScoredUpcs(s.getScoredUpcs() + 1);
-            }
-
-            // ── 4. Persist ───────────────────────────────────────────────────
-            step(s, "Persisting results…");
-            persistenceService.saveAll(results);
-
-            // ── 5. Export ────────────────────────────────────────────────────
-            step(s, "Generating export files…");
-            exportService.generateOutputFiles(results);
-
-            // ── Done ─────────────────────────────────────────────────────────
             s.setState(ProcessingStatus.State.COMPLETED);
             s.setCompletedAt(LocalDateTime.now());
             s.setCurrentStep("Done. Processed " + results.size() + " UPCs.");
@@ -122,11 +88,91 @@ public class ProcessingService {
         }
     }
 
-    // ── override ──────────────────────────────────────────────────────────────
+    // ── list-based synchronous processing ────────────────────────────────────
 
     /**
-     * Manually overrides the selected image for a UPC.
+     * Synchronously processes the given image URLs through the full pipeline
+     * and returns a summary result.
      */
+    public LinksProcessingResultDto processLinks(List<String> imageLinks) throws IOException {
+        List<ImageInfo> allImages = downloadService.downloadUrls(imageLinks, null);
+
+        int downloadedCount = (int) allImages.stream().filter(i -> !i.isDownloadFailed()).count();
+        int failedDownloads = allImages.size() - downloadedCount;
+        int validLinks = (int) allImages.stream().filter(i -> i.getUpc() != null).count();
+        int invalidLinks = allImages.size() - validLinks;
+
+        List<String> failedUrls = allImages.stream()
+                .filter(i -> i.isDownloadFailed())
+                .map(ImageInfo::getUrl)
+                .filter(Objects::nonNull)
+                .toList();
+
+        Map<String, ProcessingResult> results = runPipelineCore(allImages, null);
+
+        Map<String, UpcResultDto> groups = results.entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        e -> UpcResultDto.from(e.getValue()),
+                        (a, b) -> a,
+                        LinkedHashMap::new));
+
+        return LinksProcessingResultDto.builder()
+                .totalLinks(imageLinks.size())
+                .validLinks(validLinks)
+                .invalidLinks(invalidLinks)
+                .downloadedCount(downloadedCount)
+                .failedDownloads(failedDownloads)
+                .totalGroups(results.size())
+                .failedUrls(failedUrls)
+                .groups(groups)
+                .processedAt(LocalDateTime.now())
+                .build();
+    }
+
+    // ── shared pipeline core (steps 2–5) ─────────────────────────────────────
+
+    /**
+     * Group → score+select → persist → export. The {@code status} parameter is
+     * updated when provided (async path); pass {@code null} for the sync path.
+     */
+    private Map<String, ProcessingResult> runPipelineCore(List<ImageInfo> allImages,
+                                                           ProcessingStatus s) throws IOException {
+        // Group by UPC
+        Map<String, List<ImageInfo>> byUpc = allImages.stream()
+                .filter(i -> i.getUpc() != null)
+                .collect(Collectors.groupingBy(ImageInfo::getUpc,
+                        LinkedHashMap::new, Collectors.toList()));
+
+        if (s != null) {
+            s.setTotalUpcs(byUpc.size());
+            log.info("Found {} distinct UPCs", byUpc.size());
+            step(s, "Scoring and selecting images…");
+        }
+
+        Path selectedDir = Path.of(props.getSelectedDir());
+        Files.createDirectories(selectedDir);
+
+        Map<String, ProcessingResult> results = new LinkedHashMap<>();
+        for (Map.Entry<String, List<ImageInfo>> entry : byUpc.entrySet()) {
+            ProcessingResult result = selectBest(entry.getKey(), entry.getValue(), selectedDir);
+            results.put(entry.getKey(), result);
+            if (s != null) {
+                s.setScoredUpcs(s.getScoredUpcs() + 1);
+            }
+        }
+
+        if (s != null) step(s, "Persisting results…");
+        persistenceService.saveAll(results);
+
+        if (s != null) step(s, "Generating export files…");
+        exportService.generateOutputFiles(results);
+
+        return results;
+    }
+
+    // ── override ──────────────────────────────────────────────────────────────
+
     public ProcessingResult overrideSelection(String upc, String filename) {
         ProcessingResult result = persistenceService.getByUpc(upc)
                 .orElseThrow(() -> new ResourceNotFoundException("No result for UPC: " + upc));
@@ -138,7 +184,6 @@ public class ProcessingService {
                     "Filename '" + filename + "' is not a candidate for UPC: " + upc);
         }
 
-        // Mark new selection on score objects
         if (result.getCandidates() != null) {
             result.getCandidates().forEach(img -> {
                 if (img.getScore() != null) {
@@ -147,7 +192,6 @@ public class ProcessingService {
             });
         }
 
-        // Copy to selected dir
         Path src = Path.of(props.getDownloadDir(), filename);
         Path dst = Path.of(props.getSelectedDir(), filename);
         try {
@@ -163,7 +207,6 @@ public class ProcessingService {
         result.setManualOverride(true);
         result.setOverriddenAt(LocalDateTime.now());
 
-        // Update selection reason
         result.getCandidates().stream()
                 .filter(i -> filename.equals(i.getFilename()))
                 .findFirst()
@@ -175,7 +218,6 @@ public class ProcessingService {
 
         persistenceService.saveOne(result);
 
-        // Regenerate export files
         try {
             exportService.generateOutputFiles(persistenceService.getAll());
         } catch (IOException e) {
@@ -188,7 +230,6 @@ public class ProcessingService {
     // ── selection logic ───────────────────────────────────────────────────────
 
     private ProcessingResult selectBest(String upc, List<ImageInfo> candidates, Path selectedDir) {
-        // Score all downloadable candidates
         List<ImageInfo> scoreable = candidates.stream()
                 .filter(i -> !i.isDownloadFailed() && i.getLocalPath() != null)
                 .toList();
@@ -198,13 +239,11 @@ public class ProcessingService {
             img.setScore(sc);
         }
 
-        // Rank by total score descending
         Optional<ImageInfo> best = scoreable.stream()
                 .filter(i -> i.getScore() != null)
                 .max(Comparator.comparingDouble(i -> i.getScore().getTotalScore()));
 
         String selectedFilename = null;
-        String selectedReason   = null;
         Path selectedPath       = null;
 
         if (best.isPresent()) {
@@ -216,15 +255,13 @@ public class ProcessingService {
                     .filter(i -> i.getScore().getTotalScore() > winner.getScore().getTotalScore())
                     .count();
 
-            selectedReason = String.format(
+            String selectedReason = String.format(
                     "Best total score %.2f among %d scored candidate(s) (rank #%d)",
                     winner.getScore().getTotalScore(), scoreable.size(), rank + 1);
 
-            // Mark as selected
             winner.getScore().setSelected(true);
             winner.getScore().setSelectionReason(selectedReason);
 
-            // Copy to selected dir
             Path src = Path.of(winner.getLocalPath());
             selectedPath = selectedDir.resolve(winner.getFilename());
             try {
@@ -232,10 +269,6 @@ public class ProcessingService {
             } catch (IOException e) {
                 log.warn("Could not copy selected image {}: {}", winner.getFilename(), e.getMessage());
             }
-
-        } else if (!candidates.isEmpty()) {
-            // All downloads failed – still record with null selection
-            selectedReason = "No image could be downloaded for this UPC";
         }
 
         return ProcessingResult.builder()
