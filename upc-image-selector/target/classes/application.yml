@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: upc-image-selector
+  thymeleaf:
+    cache: false
+    encoding: UTF-8
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+  servlet:
+    multipart:
+      enabled: false
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+logging:
+  level:
+    com.upc.imageselector: DEBUG
+    root: INFO
+
+app:
+  images-link-file: ImagesLink.txt
+  download-dir: downloaded_images
+  selected-dir: selected_front_images
+  results-dir: results
+  download-threads: 10
+  download-timeout-seconds: 30
+  read-timeout-seconds: 60
+  max-image-size-bytes: 52428800   # 50 MB
+  scoring:
+    working-size: 600              # downsample to this resolution for scoring
+    border-fraction: 0.15          # fraction of image used for border/background sampling
+    sharpness-scale: 500.0         # Laplacian variance normalisation factor
+    ideal-brightness: 150.0
+    ideal-contrast-low: 40.0
+    ideal-contrast-high: 80.0
