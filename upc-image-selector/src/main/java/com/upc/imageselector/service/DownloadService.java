@@ -2,6 +2,7 @@ package com.upc.imageselector.service;
 
 import com.upc.imageselector.config.AppProperties;
 import com.upc.imageselector.model.ImageInfo;
+import com.upc.imageselector.service.source.FileImageLinkSource;
 import com.upc.imageselector.util.FilenameParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,24 +29,23 @@ public class DownloadService {
     private final FilenameParser parser;
 
     /**
-     * Reads URLs from the configured link file, downloads each image
-     * concurrently, and returns the list of ImageInfo records.
-     *
-     * @param progressCallback (downloaded, failed) counts after each file
+     * Reads URLs from the configured link file and delegates to {@link #downloadUrls}.
      */
     public List<ImageInfo> downloadAll(BiConsumer<Integer, Integer> progressCallback) throws IOException {
-        Path linkFile = Path.of(props.getImagesLinkFile());
-        if (!Files.exists(linkFile)) {
-            throw new FileNotFoundException("Link file not found: " + linkFile.toAbsolutePath());
-        }
+        List<String> urls = new FileImageLinkSource(Path.of(props.getImagesLinkFile())).loadUrls();
+        log.info("Found {} URLs in {}", urls.size(), props.getImagesLinkFile());
+        return downloadUrls(urls, progressCallback);
+    }
 
-        List<String> urls = Files.readAllLines(linkFile).stream()
-                .map(String::trim)
-                .filter(l -> !l.isBlank() && !l.startsWith("#"))
-                .toList();
-
-        log.info("Found {} URLs in {}", urls.size(), linkFile);
-
+    /**
+     * Downloads each URL in the supplied list concurrently and returns
+     * one {@link ImageInfo} per URL.
+     *
+     * @param urls             URLs to download
+     * @param progressCallback called after each completion with (downloaded, failed) counts; may be null
+     */
+    public List<ImageInfo> downloadUrls(List<String> urls,
+                                        BiConsumer<Integer, Integer> progressCallback) throws IOException {
         Path downloadDir = Path.of(props.getDownloadDir());
         Files.createDirectories(downloadDir);
 
@@ -105,7 +105,6 @@ public class DownloadService {
         String filename = pf.canonicalFilename();
         Path target = downloadDir.resolve(filename);
 
-        // Skip download if file already exists and is non-empty
         if (Files.exists(target) && isNonEmpty(target)) {
             log.debug("Already exists, skipping download: {}", filename);
             return buildInfo(pf, url, target, false, null);
@@ -140,7 +139,6 @@ public class DownloadService {
 
         } catch (Exception e) {
             log.warn("Failed to download {}: {}", url, e.getMessage());
-            // Remove partial file
             try { Files.deleteIfExists(target); } catch (IOException ignored) {}
             return fail(pf, url, e.getMessage());
         }

@@ -1,5 +1,7 @@
 package com.upc.imageselector.controller;
 
+import com.upc.imageselector.dto.ImageLinksRequestDto;
+import com.upc.imageselector.dto.LinksProcessingResultDto;
 import com.upc.imageselector.dto.OverrideRequestDto;
 import com.upc.imageselector.dto.ProcessingStatusDto;
 import com.upc.imageselector.dto.UpcResultDto;
@@ -11,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -23,7 +26,7 @@ public class ApiController {
     private final PersistenceService persistenceService;
 
     /**
-     * Trigger the full download → score → select pipeline.
+     * Trigger the full download → score → select pipeline from the configured link file.
      * Returns immediately; poll /api/status for progress.
      */
     @PostMapping("/process")
@@ -31,6 +34,16 @@ public class ApiController {
         processingService.startProcessing();
         return ResponseEntity.accepted()
                 .body(Map.of("message", "Processing started. Poll /api/status for progress."));
+    }
+
+    /**
+     * Synchronously process a caller-supplied list of image URLs.
+     * Returns the full result inline once complete.
+     */
+    @PostMapping("/process/links")
+    public LinksProcessingResultDto processLinks(
+            @Valid @RequestBody ImageLinksRequestDto body) throws IOException {
+        return processingService.processLinks(body.getImageLinks());
     }
 
     /** Current processing status / progress. */
