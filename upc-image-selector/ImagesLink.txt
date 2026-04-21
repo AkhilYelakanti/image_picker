@@ -1,0 +1,23 @@
+# UPC Image Selector – Image Link File
+#
+# Format  : One URL per line (lines starting with # are ignored)
+# Filename: Must contain a 14-digit UPC and image type, e.g.
+#           https://example.com/.../00012345678901_1.jpg
+#
+# Image type conventions (used as weak tie-breaker only):
+#   1  – primary front-of-pack shot  (+2 pts)
+#   70 – alternate front             (+1.5 pts)
+#   74 – right/left side             (+1 pt)
+#   21 – back of pack                (+0.5 pts)
+#
+# Add your real image URLs below.  Remove or comment out the sample lines.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# === SAMPLE URLS (replace with real ones) ====================================
+# https://cdn.example.com/products/00012345678901_1.jpg
+# https://cdn.example.com/products/00012345678901_70.jpg
+# https://cdn.example.com/products/00012345678901_74.jpg
+# https://cdn.example.com/products/00012345678902_1.jpg
+# https://cdn.example.com/products/00012345678902_21.jpg
+# https://cdn.example.com/products/00099482449362_1.jpg
+# https://cdn.example.com/products/00099482449362_70.jpg

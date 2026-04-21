@@ -1,0 +1,9 @@
+target/
+*.class
+downloaded_images/
+selected_front_images/
+results/
+*.log
+.idea/
+*.iml
+.DS_Store
