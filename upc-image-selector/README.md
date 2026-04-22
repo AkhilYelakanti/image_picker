@@ -1,27 +1,146 @@
-# UPC Image Selector
+# UPC Image Selector — Spring Boot Starter
 
-A production-style **Java 21 / Spring Boot 3** application that automatically
-selects the best front-of-pack product image for each UPC using fully **local**
-heuristics — no cloud APIs, no paid services, no external AI models.
+A **Spring Boot auto-configuration library** that selects the best front-of-pack
+product image for each UPC using fully **local** heuristics — no cloud APIs, no
+paid services, no external AI models.
+
+Add the JAR as a Maven dependency and the full pipeline (download → score → select
+→ persist → export) is auto-configured in your Spring Boot application.
 
 ---
 
 ## Table of Contents
 
+- [Features](#features)
+- [Requirements](#requirements)
+- [Adding the dependency](#adding-the-dependency)
+- [Quick start — 5 minutes](#quick-start--5-minutes)
 - [How it works](#how-it-works)
-- [Prerequisites](#prerequisites)
-- [Quick start](#quick-start)
-- [Configuration](#configuration)
+- [Configuration reference](#configuration-reference)
 - [REST API](#rest-api)
-  - [File-based processing (async)](#file-based-processing-async)
-  - [List-based processing (sync)](#list-based-processing-sync)
-  - [Results & overrides](#results--overrides)
-  - [Exports](#exports)
 - [Web UI](#web-ui)
+- [Customising or disabling individual beans](#customising-or-disabling-individual-beans)
 - [Output files](#output-files)
 - [Scoring algorithm](#scoring-algorithm)
 - [Running tests](#running-tests)
 - [Project structure](#project-structure)
+- [Publishing to Maven Central](#publishing-to-maven-central)
+
+---
+
+## Features
+
+| Feature | Details |
+|---------|---------|
+| Auto-configuration | Drop the JAR on the classpath — all beans wire up automatically |
+| Java 17+ | Runs on Java 17, 21, or any later LTS release |
+| Zero native deps | Pure Java pixel math; no OpenCV, no C++ libs |
+| Spring Boot 3.2+ | Uses `@AutoConfiguration`, `AutoConfiguration.imports` (Spring Boot 3 standard) |
+| Optional REST API | Activated only when `spring-boot-starter-web` is present |
+| Optional review UI | Activated only when `spring-boot-starter-thymeleaf` is also present |
+| Fully overridable | Every bean is `@ConditionalOnMissingBean` — override anything you need |
+
+---
+
+## Requirements
+
+| Requirement | Version |
+|-------------|---------|
+| Java | 17 or later |
+| Spring Boot | 3.2.x or later |
+| Maven | 3.9+ (for builds) |
+
+---
+
+## Adding the dependency
+
+> **Note:** Until the artifact is published to Maven Central, install it locally
+> first (`mvn install`), then reference it from your project.
+
+### Maven
+
+```xml
+<dependency>
+    <groupId>io.github.akhilyelakanti</groupId>
+    <artifactId>upc-image-selector-spring-boot-starter</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+### Gradle
+
+```groovy
+implementation 'io.github.akhilyelakanti:upc-image-selector-spring-boot-starter:1.0.0'
+```
+
+### Optional starters
+
+The library's REST API and review UI are conditional:
+
+| You want | Add this alongside the starter |
+|----------|-------------------------------|
+| REST API (`/api/**`) | `spring-boot-starter-web` |
+| Review UI (`/review`) | `spring-boot-starter-web` + `spring-boot-starter-thymeleaf` |
+| Core services only | Nothing extra needed |
+
+---
+
+## Quick start — 5 minutes
+
+### 1. Create a Spring Boot app
+
+```java
+@SpringBootApplication
+public class MyApp {
+    public static void main(String[] args) {
+        SpringApplication.run(MyApp.class, args);
+    }
+}
+```
+
+Add `spring-boot-starter-web` + `spring-boot-starter-thymeleaf` + this starter to
+your `pom.xml`. All REST endpoints and the review UI are auto-configured.
+
+### 2. Create `ImagesLink.txt` in the working directory
+
+```
+# One URL per line; filename must match {14-digit-UPC}_{imageType}.jpg
+https://cdn.example.com/products/00012345678901_1.jpg
+https://cdn.example.com/products/00012345678901_70.jpg
+https://cdn.example.com/products/00012345678902_74.jpg
+```
+
+### 3. Run
+
+```bash
+mvn spring-boot:run
+# or
+java -jar target/my-app.jar
+```
+
+Open **http://localhost:8080** → click **Start Processing** → watch the progress bar.
+
+### 4. Use programmatically (no web required)
+
+```java
+@Service
+public class MyService {
+
+    private final ProcessingService processingService;
+
+    public MyService(ProcessingService processingService) {
+        this.processingService = processingService;
+    }
+
+    public void runFromFile() {
+        processingService.startProcessing();       // async; poll getStatus()
+    }
+
+    public LinksProcessingResultDto runFromList(List<String> urls) throws IOException {
+        return processingService.processLinks(urls); // sync; returns full result
+    }
+}
+```
 
 ---
 
@@ -29,26 +148,26 @@ heuristics — no cloud APIs, no paid services, no external AI models.
 
 ```
 ImagesLink.txt  ──or──  POST /api/process/links
-         │
-         ▼  (concurrent HTTP download, 10 threads by default)
+        │
+        ▼  (concurrent HTTP download, 10 threads by default)
 downloaded_images/
-         │
-         ▼  (per-image scoring — pure Java, no native libs)
-         │   • Resolution   (0–20 pts)  pixels / 2 MP, capped at 20
-         │   • Sharpness    (0–25 pts)  Laplacian variance
-         │   • Brightness   (0–15 pts)  ideal mean ≈ 150 / 255
-         │   • Contrast     (0–15 pts)  std-dev of brightness
-         │   • Background   (0–15 pts)  white / plain border region
-         │   • Centering    (0–10 pts)  foreground COM near image centre
-         │   • Type bonus   (0–2  pts)  type 1 > 70 > 74 > 21 (weak)
-         ▼
+        │
+        ▼  (per-image scoring — pure Java pixel math)
+        │   • Resolution   (0–20 pts)
+        │   • Sharpness    (0–25 pts)  Laplacian variance
+        │   • Brightness   (0–15 pts)  ideal mean ≈ 150/255
+        │   • Contrast     (0–15 pts)  std-dev of brightness
+        │   • Background   (0–15 pts)  white / plain border region
+        │   • Centering    (0–10 pts)  foreground COM near image centre
+        │   • Type bonus   (0–2  pts)  type 1 > 70 > 74 > 21
+        ▼
 selected_front_images/          ← best image per UPC copied here
 selected_front_images.txt       ← plain list of selected filenames
 selected_front_images.csv       ← full score breakdown per UPC
 results/processing_results.json ← persisted state (survives restarts)
 ```
 
-Two input modes share the identical download → score → select → persist → export pipeline:
+Two input modes share the **identical** pipeline:
 
 | Mode | Trigger | Response |
 |------|---------|----------|
@@ -57,113 +176,34 @@ Two input modes share the identical download → score → select → persist �
 
 ---
 
-## Prerequisites
+## Configuration reference
 
-| Tool | Version |
-|------|---------|
-| Java | 21+ |
-| Maven | 3.9+ |
-
-No native libraries required. Scoring runs in pure Java via `java.awt.image.BufferedImage`
-and [Thumbnailator](https://github.com/coobird/thumbnailator) for downsampling.
-
----
-
-## Quick start
-
-### 1. Clone and build
-
-```bash
-git clone https://github.com/AkhilYelakanti/image_picker.git
-cd image_picker/upc-image-selector
-mvn clean package -DskipTests
-```
-
-### 2. Populate `ImagesLink.txt` (file-based mode only)
-
-Place one image URL per line. Each URL must contain a filename matching the pattern
-`{14-digit-UPC}_{imageType}.jpg`:
-
-```
-https://cdn.example.com/products/00012345678901_1.jpg
-https://cdn.example.com/products/00012345678901_70.jpg
-https://cdn.example.com/products/00012345678902_74.jpg
-# Lines starting with # are ignored
-```
-
-### 3. Run
-
-```bash
-java -jar target/upc-image-selector-1.0.0.jar
-```
-
-The app starts on **http://localhost:8080**.
-
-### 4. Process images
-
-**Option A — Web UI:**
-Open http://localhost:8080 and click **Start Processing**.
-
-**Option B — File-based API (async):**
-```bash
-# Kick off processing
-curl -X POST http://localhost:8080/api/process
-
-# Poll until state is COMPLETED or FAILED
-curl http://localhost:8080/api/status
-```
-
-**Option C — List-based API (sync):**
-```bash
-curl -X POST http://localhost:8080/api/process/links \
-     -H "Content-Type: application/json" \
-     -d '{
-       "imageLinks": [
-         "https://cdn.example.com/products/00012345678901_1.jpg",
-         "https://cdn.example.com/products/00012345678901_70.jpg"
-       ]
-     }'
-```
-Returns the complete result immediately — no polling required.
-
-### 5. Review & override
-
-Open http://localhost:8080/review to see a thumbnail grid for every UPC.
-Click **Select** on any candidate to override the automated choice.
-All overrides are persisted and reflected in exports immediately.
-
----
-
-## Configuration
-
-All settings live in `src/main/resources/application.yml` and can be overridden
-via environment variables or `--app.*` command-line arguments.
+All properties have sensible defaults in `AppProperties`. Override them in your
+application's `application.yml`:
 
 ```yaml
 app:
   images-link-file: ImagesLink.txt      # path to URL list (file-based mode)
-  download-dir: downloaded_images       # where downloaded images are saved
-  selected-dir: selected_front_images   # where selected images are copied
+  download-dir: downloaded_images       # downloaded image cache
+  selected-dir: selected_front_images   # selected image copies
   results-dir: results                  # JSON persistence directory
   download-threads: 10                  # concurrent download threads
   download-timeout-seconds: 30          # HTTP connect timeout
   read-timeout-seconds: 60              # HTTP read timeout
-  max-image-size-bytes: 52428800        # 50 MB per-image size limit
+  max-image-size-bytes: 52428800        # 50 MB per-image limit
   scoring:
-    working-size: 600         # downsample long edge to this before scoring
-    border-fraction: 0.15     # fraction of image treated as background border
+    working-size: 600         # downsample long edge before scoring
+    border-fraction: 0.15     # fraction of image used as background border
     sharpness-scale: 500.0    # Laplacian variance normalisation factor
     ideal-brightness: 150.0   # target mean brightness (0–255)
     ideal-contrast-low: 40.0  # std-dev lower bound for full contrast score
     ideal-contrast-high: 80.0 # std-dev upper bound for full contrast score
 ```
 
-Override example at runtime:
+Override at runtime:
 
 ```bash
-java -jar target/upc-image-selector-1.0.0.jar \
-     --app.download-threads=20 \
-     --app.download-dir=/data/images
+java -jar my-app.jar --app.download-threads=20 --app.download-dir=/mnt/images
 ```
 
 ---
@@ -174,26 +214,16 @@ java -jar target/upc-image-selector-1.0.0.jar \
 
 #### `POST /api/process`
 
-Kicks off the full pipeline using `ImagesLink.txt`. Returns immediately with
-`202 Accepted`; poll `/api/status` for progress.
+Starts the pipeline from `ImagesLink.txt`. Returns `202 Accepted` immediately;
+poll `/api/status` for progress.
 
 ```bash
 curl -X POST http://localhost:8080/api/process
 ```
 
-```json
-{
-  "message": "Processing started. Poll /api/status for progress."
-}
-```
-
-Returns `409 Conflict` if processing is already running.
+Returns `409 Conflict` if a run is already in progress.
 
 #### `GET /api/status`
-
-```bash
-curl http://localhost:8080/api/status
-```
 
 ```json
 {
@@ -205,13 +235,11 @@ curl http://localhost:8080/api/status
   "totalUpcs": 62,
   "scoredUpcs": 38,
   "progressPercent": 61,
-  "startedAt": "2024-01-15T10:00:00",
-  "completedAt": null,
-  "errorMessage": null
+  "startedAt": "2024-01-15T10:00:00"
 }
 ```
 
-Possible `state` values: `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`.
+States: `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`.
 
 ---
 
@@ -219,154 +247,51 @@ Possible `state` values: `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`.
 
 #### `POST /api/process/links`
 
-Accepts a JSON body with a list of image URLs. Downloads, scores, selects, persists,
-and exports — all synchronously. Returns the full result in the response body.
+Accepts a list of image URLs, runs the full pipeline synchronously, returns the
+complete result in the response body.
 
 ```bash
 curl -X POST http://localhost:8080/api/process/links \
      -H "Content-Type: application/json" \
-     -d '{
-       "imageLinks": [
-         "https://cdn.example.com/00012345678901_1.jpg",
-         "https://cdn.example.com/00012345678901_70.jpg",
-         "https://cdn.example.com/00012345678902_1.jpg"
-       ]
-     }'
+     -d '{"imageLinks":["https://cdn.example.com/00012345678901_1.jpg"]}'
 ```
 
 ```json
 {
-  "totalLinks": 3,
-  "validLinks": 3,
+  "totalLinks": 1,
+  "validLinks": 1,
   "invalidLinks": 0,
-  "downloadedCount": 2,
-  "failedDownloads": 1,
-  "totalGroups": 2,
-  "failedUrls": [
-    "https://cdn.example.com/00012345678901_70.jpg"
-  ],
-  "groups": {
-    "00012345678901": {
-      "upc": "00012345678901",
-      "selectedFilename": "00012345678901_1.jpg",
-      "manualOverride": false,
-      "processedAt": "2024-01-15T10:30:00",
-      "candidates": [ "..." ]
-    },
-    "00012345678902": { "..." }
-  },
-  "processedAt": "2024-01-15T10:30:01"
+  "downloadedCount": 1,
+  "failedDownloads": 0,
+  "totalGroups": 1,
+  "failedUrls": [],
+  "groups": { "00012345678901": { "..." } },
+  "processedAt": "2024-01-15T10:30:00"
 }
 ```
-
-**Request validation:**
-- `imageLinks` must be present and non-empty → `400 Bad Request` otherwise
-- URLs that do not match the `{14-digit-UPC}_{type}.ext` pattern are counted as
-  `invalidLinks` and appear in `failedUrls`
-
-**Response fields:**
-
-| Field | Description |
-|-------|-------------|
-| `totalLinks` | Number of URLs submitted |
-| `validLinks` | URLs with a parseable UPC/type filename |
-| `invalidLinks` | URLs that could not be parsed (no UPC extracted) |
-| `downloadedCount` | Successfully downloaded images |
-| `failedDownloads` | Download errors (HTTP errors, timeouts, size limit) |
-| `totalGroups` | Distinct UPCs processed |
-| `failedUrls` | List of URLs that failed download or parsing |
-| `groups` | Map of UPC → full result with candidates and scores |
-| `processedAt` | Completion timestamp |
 
 ---
 
 ### Results & overrides
 
-#### `GET /api/results`
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/results` | All UPC results |
+| `GET` | `/api/results/{upc}` | Single UPC result; `404` if not found |
+| `POST` | `/api/results/{upc}/override` | Override selected image |
+| `GET` | `/api/export/txt` | Download `selected_front_images.txt` |
+| `GET` | `/api/export/csv` | Download `selected_front_images.csv` |
 
-Returns all persisted UPC results.
-
-```bash
-curl http://localhost:8080/api/results
-```
-
-```json
-[
-  {
-    "upc": "00012345678901",
-    "selectedFilename": "00012345678901_1.jpg",
-    "manualOverride": false,
-    "processedAt": "2024-01-15T10:30:00",
-    "candidates": [
-      {
-        "filename": "00012345678901_1.jpg",
-        "imageType": "1",
-        "width": 1200,
-        "height": 1200,
-        "downloadFailed": false,
-        "score": {
-          "totalScore": 78.5,
-          "resolutionScore": 20.0,
-          "sharpnessScore": 22.1,
-          "brightnessScore": 13.4,
-          "contrastScore": 12.8,
-          "backgroundScore": 7.2,
-          "centeringScore": 1.0,
-          "typeTiebreaker": 2.0,
-          "selected": true,
-          "selectionReason": "Best total score 78.50 among 2 scored candidate(s) (rank #1)"
-        }
-      }
-    ]
-  }
-]
-```
-
-#### `GET /api/results/{upc}`
-
-Single UPC result. Returns `404 Not Found` if the UPC has no recorded result.
-
-```bash
-curl http://localhost:8080/api/results/00012345678901
-```
-
-#### `POST /api/results/{upc}/override`
-
-Manually override the selected image. The filename must be one of the UPC's
-existing candidates.
+#### Override example
 
 ```bash
 curl -X POST http://localhost:8080/api/results/00012345678901/override \
      -H "Content-Type: application/json" \
-     -d '{"filename": "00012345678901_70.jpg"}'
+     -d '{"filename":"00012345678901_70.jpg"}'
 ```
 
-Returns the updated result with `"manualOverride": true` and an `overriddenAt`
-timestamp. Export files are regenerated automatically.
-
-**Error responses:**
-- `400 Bad Request` — filename is blank
-- `404 Not Found` — UPC not found, or filename is not a candidate for that UPC
-
----
-
-### Exports
-
-#### `GET /api/export/txt`
-
-Downloads `selected_front_images.txt` as an attachment.
-
-```bash
-curl -OJ http://localhost:8080/api/export/txt
-```
-
-#### `GET /api/export/csv`
-
-Downloads `selected_front_images.csv` with full score breakdown as an attachment.
-
-```bash
-curl -OJ http://localhost:8080/api/export/csv
-```
+The filename must be one of the existing candidates for that UPC. Export files are
+regenerated automatically after each override.
 
 ---
 
@@ -374,14 +299,47 @@ curl -OJ http://localhost:8080/api/export/csv
 
 | URL | Description |
 |-----|-------------|
-| `http://localhost:8080/` | Dashboard — start processing, view live progress, quick stats |
-| `http://localhost:8080/review` | Thumbnail grid — all UPCs with score badges and Select buttons |
-| `http://localhost:8080/review?upc=00012345678901` | Filter review grid by UPC |
-| `http://localhost:8080/review/00012345678901` | Detail view for a single UPC |
+| `http://localhost:8080/` | Dashboard — start processing, live progress bar |
+| `http://localhost:8080/review` | Thumbnail grid — all UPCs with score badges |
+| `http://localhost:8080/review?upc=…` | Filter review to a single UPC |
+| `http://localhost:8080/review/{upc}` | Detail view for one UPC |
 
-The dashboard polls `/api/status` every 2 seconds while processing is running and
-updates the progress bar in real time. The review page shows a collapsible score
-breakdown for every candidate image.
+Templates are served from `classpath:/templates/upc-image-selector/` so they will
+not conflict with templates in your application.
+
+---
+
+## Customising or disabling individual beans
+
+Every auto-configured bean uses `@ConditionalOnMissingBean`. Declare your own bean
+of the same type to replace it:
+
+```java
+@Configuration
+public class MyConfig {
+
+    // Replace the scoring service with custom logic
+    @Bean
+    public ScoringService scoringService(AppProperties props) {
+        return new MyScoringService(props);
+    }
+
+    // Replace the download directory mapping
+    @Bean
+    public WebConfig webConfig(AppProperties props) {
+        return new WebConfig(props) {
+            @Override
+            public void addResourceHandlers(ResourceHandlerRegistry registry) {
+                registry.addResourceHandler("/images/**")
+                        .addResourceLocations("file:/custom/path/");
+            }
+        };
+    }
+}
+```
+
+To disable the review UI entirely, exclude `ThymeleafAutoConfiguration` or simply
+do not add `spring-boot-starter-thymeleaf` to your project.
 
 ---
 
@@ -396,7 +354,6 @@ breakdown for every candidate image.
 
 00012345678901_1.jpg
 00012345678902_70.jpg
-00099482449362_74.jpg
 ```
 
 ### `selected_front_images.csv`
@@ -413,129 +370,43 @@ breakdown for every candidate image.
 | ContrastScore | 0–15 |
 | BackgroundScore | 0–15 |
 | CenteringScore | 0–10 |
-| Width | Pixel width |
-| Height | Pixel height |
+| Width / Height | Pixel dimensions |
 | FileSizeBytes | File size in bytes |
 | ManualOverride | `true` if overridden by user |
-| ProcessedAt | Pipeline completion timestamp |
-| OverriddenAt | Override timestamp (blank if automatic) |
-
-### `results/processing_results.json`
-
-Full structured state including all candidates, scores, and metadata.
-Loaded on startup so results survive application restarts.
+| ProcessedAt / OverriddenAt | Timestamps |
 
 ---
 
 ## Scoring algorithm
 
-All analysis is pure Java pixel math — no native libraries, no cloud calls.
+All analysis is pure Java — no native libraries, no cloud calls. Images are
+downsampled to 600 px before scoring for consistent speed.
 
-Images are downsampled to a 600 px working size via Thumbnailator before scoring
-to keep CPU time predictable regardless of source resolution.
-
-### Resolution (0–20)
-
-```
-score = min(width × height / 2_000_000, 1.0) × 20
-```
-
-Caps at 2 MP so extremely large images don't dominate.
-
-### Sharpness — Laplacian variance (0–25)
-
-```
-kernel = [[ 0,  1,  0],
-          [ 1, -4,  1],
-          [ 0,  1,  0]]
-
-For each interior pixel (ITU-R BT.601 grayscale):
-  response = Laplacian convolution at pixel
-
-score = min(variance(responses) / 500, 1.0) × 25
-```
-
-High variance → strong local edges → image is in focus.
-
-### Brightness (0–15)
-
-```
-deviation = |mean_brightness - 150| / 120   (clamped to [0, 1])
-score = (1 - deviation) × 15
-```
-
-Penalises images that are very dark or very over-exposed.
-
-### Contrast (0–15)
-
-```
-std_dev of per-pixel brightness:
-  < 40         → ramp from 0 to 15
-  40–80        → 15  (full score plateau)
-  > 80         → decay
-```
-
-### Background plainness (0–15)
-
-The outer 15 % border of the image (in each dimension) is sampled.
-Each border pixel is converted to HSB colour space:
-
-```
-score = ((1 - mean_saturation) × 0.5 + mean_brightness × 0.5) × 15
-```
-
-Low saturation + high HSB brightness ≈ white or plain background.
-
-### Subject centering (0–10)
-
-Background brightness is estimated from the four image corners.
-Pixels significantly darker than the background are classified as foreground.
-The foreground centre-of-mass (COM) distance from the image centre is normalised:
-
-```
-score = (1 - normalised_distance) × 10
-```
-
-### Type bonus (0–2)
-
-A small tie-breaker that reflects typical image-type conventions:
-
-| Type | Bonus |
-|------|-------|
-| `1`  | 2.0   |
-| `70` | 1.5   |
-| `74` | 1.0   |
-| `21` | 0.5   |
-| other | 0.0  |
+| Component | Max | Formula summary |
+|-----------|-----|-----------------|
+| Resolution | 20 | `min(W×H / 2MP, 1) × 20` — caps at 2 MP |
+| Sharpness | 25 | Laplacian variance / 500, capped at 25 |
+| Brightness | 15 | Linear penalty away from 150/255 |
+| Contrast | 15 | Full score for std-dev 40–80; ramp below/above |
+| Background | 15 | Border region: `(1−saturation)×0.5 + brightness×0.5` |
+| Centering | 10 | Foreground centre-of-mass distance from image centre |
+| Type bonus | 2 | 1→2.0, 70→1.5, 74→1.0, 21→0.5 |
 
 ---
 
 ## Running tests
 
 ```bash
-# All tests (44 total)
+# All 44 tests
 mvn test
 
-# Individual test class
+# Individual class
 mvn test -Dtest=FilenameParserTest
 mvn test -Dtest=ScoringServiceTest
 mvn test -Dtest=ProcessingServiceTest
 mvn test -Dtest=ApiControllerTest
 mvn test -Dtest=LinksProcessingControllerTest
-
-# Verbose output to console
-mvn test -Dsurefire.useFile=false
 ```
-
-Test coverage summary:
-
-| Test class | Tests | What is covered |
-|------------|-------|-----------------|
-| `FilenameParserTest` | 12 | UPC/type regex parsing, parameterised cases, edge cases |
-| `ScoringServiceTest` | 16 | Each scoring component, synthetic BufferedImage I/O |
-| `ProcessingServiceTest` | 5 | Override validation, status transitions (Mockito) |
-| `ApiControllerTest` | 8 | File-based REST endpoints (`@WebMvcTest`) |
-| `LinksProcessingControllerTest` | 3 | List-based REST endpoint (`@WebMvcTest`) |
 
 ---
 
@@ -543,50 +414,131 @@ Test coverage summary:
 
 ```
 src/main/java/com/upc/imageselector/
-├── UpcImageSelectorApplication.java      # @SpringBootApplication + @EnableAsync
+├── autoconfigure/
+│   └── UpcImageSelectorAutoConfiguration.java   # ← library entry point
 ├── config/
-│   ├── AppProperties.java                # @ConfigurationProperties(prefix="app")
-│   ├── AsyncConfig.java                  # single-thread processingExecutor bean
-│   └── WebConfig.java                    # /images/** and /selected/** static mappings
+│   ├── AppProperties.java      # @ConfigurationProperties(prefix="app")
+│   ├── AsyncConfig.java        # processingExecutor bean
+│   └── WebConfig.java          # /images/** and /selected/** resource handlers
 ├── controller/
-│   ├── ApiController.java                # REST: process, status, results, override, links
-│   ├── ExportController.java             # GET /api/export/txt and /csv
-│   └── UiController.java                # Thymeleaf: /, /review, /review/{upc}
-├── dto/
-│   ├── ImageInfoDto.java
-│   ├── ImageLinksRequestDto.java         # POST /api/process/links request body
-│   ├── ImageScoreDto.java
-│   ├── LinksProcessingResultDto.java     # POST /api/process/links response body
-│   ├── OverrideRequestDto.java
-│   ├── ProcessingStatusDto.java
-│   └── UpcResultDto.java
+│   ├── ApiController.java      # REST: /api/process, /api/status, /api/results
+│   ├── ExportController.java   # GET /api/export/txt, /csv
+│   └── UiController.java       # Thymeleaf: /, /review, /review/{upc}
+├── dto/                        # Request/response DTOs
 ├── exception/
-│   ├── GlobalExceptionHandler.java       # ProblemDetail (RFC 7807) error responses
+│   ├── GlobalExceptionHandler.java
 │   ├── ProcessingException.java
 │   └── ResourceNotFoundException.java
-├── model/
-│   ├── ImageInfo.java
-│   ├── ImageScore.java
-│   ├── ProcessingResult.java
-│   └── ProcessingStatus.java
+├── model/                      # Domain models (ImageInfo, ImageScore, etc.)
 ├── service/
 │   ├── source/
-│   │   ├── ImageLinkSource.java          # strategy interface: loadUrls()
+│   │   ├── ImageLinkSource.java          # strategy interface
 │   │   ├── FileImageLinkSource.java      # reads ImagesLink.txt
-│   │   └── ListImageLinkSource.java      # wraps a caller-supplied List<String>
-│   ├── DownloadService.java              # downloadAll() / downloadUrls() concurrent HTTP
-│   ├── ExportService.java                # TXT + CSV generation and streaming
-│   ├── PersistenceService.java           # JSON read/write with in-memory cache
-│   ├── ProcessingService.java            # pipeline orchestration (async + sync paths)
-│   └── ScoringService.java               # image heuristics (pure Java pixel math)
+│   │   └── ListImageLinkSource.java      # wraps List<String>
+│   ├── DownloadService.java
+│   ├── ExportService.java
+│   ├── PersistenceService.java
+│   ├── ProcessingService.java
+│   └── ScoringService.java
 └── util/
-    └── FilenameParser.java               # regex: (\d{14})_(\w+)\.(jpg|jpeg|png|…)
+    └── FilenameParser.java
 
 src/main/resources/
-├── application.yml
-└── templates/
-    ├── index.html                        # Bootstrap 5 dashboard with JS polling
-    └── review.html                       # thumbnail grid with score breakdown
+├── META-INF/spring/
+│   └── org.springframework.boot.autoconfigure.AutoConfiguration.imports
+├── static/css/
+│   └── upc-image-selector.css           # namespaced to avoid conflicts
+└── templates/upc-image-selector/        # namespaced Thymeleaf templates
+    ├── index.html
+    └── review.html
+
+src/test/java/com/upc/imageselector/
+└── TestApplication.java                 # @SpringBootApplication for tests only
+```
+
+---
+
+## Publishing to Maven Central
+
+> Follow these steps when you are ready to publish a release publicly.
+
+### Step 1 — Create a Sonatype account
+
+Register at **https://central.sonatype.com** with your GitHub account.
+
+### Step 2 — Verify your namespace
+
+Your `groupId` is `io.github.akhilyelakanti`.
+
+On the **Namespaces** page in Sonatype Central, add `io.github.akhilyelakanti`.
+Sonatype will ask you to create a public GitHub repository named exactly as shown
+(e.g., `CENTRAL-XXXXXXXX`). Create it, then click **Verify Namespace**. Approval
+is instant for GitHub-based namespaces.
+
+### Step 3 — Generate a GPG key
+
+```bash
+# Generate a new key (use your real name and email)
+gpg --gen-key
+
+# List keys to get your key ID
+gpg --list-secret-keys --keyid-format=long
+
+# Publish the public key (pick any keyserver)
+gpg --keyserver keyserver.ubuntu.com --send-keys <YOUR_KEY_ID>
+```
+
+### Step 4 — Configure `~/.m2/settings.xml`
+
+```xml
+<settings>
+  <servers>
+    <server>
+      <id>central</id>
+      <!-- Generate a token at central.sonatype.com → Account → Generate User Token -->
+      <username>YOUR_TOKEN_USERNAME</username>
+      <password>YOUR_TOKEN_PASSWORD</password>
+    </server>
+  </servers>
+  <profiles>
+    <profile>
+      <id>release</id>
+      <properties>
+        <!-- Optional: store GPG passphrase here instead of passing on the CLI -->
+        <gpg.passphrase>YOUR_GPG_PASSPHRASE</gpg.passphrase>
+      </properties>
+    </profile>
+  </profiles>
+</settings>
+```
+
+### Step 5 — Deploy
+
+```bash
+# From the upc-image-selector/ directory
+mvn clean deploy -P release
+```
+
+This will:
+1. Compile and run all tests
+2. Generate `-sources.jar` and `-javadoc.jar`
+3. Sign all artifacts with GPG
+4. Upload to Sonatype Central (status: **Uploaded**, not yet published)
+
+### Step 6 — Review and publish
+
+Log into **https://central.sonatype.com → Deployments**.
+Find your upload, inspect the validation report, and click **Publish** when ready.
+The artifact appears on Maven Central within ~30 minutes.
+
+### Step 7 — Future releases
+
+Bump the version in `pom.xml`, tag the commit, and re-run `mvn clean deploy -P release`.
+
+```bash
+# Tag the release
+git tag -a v1.0.0 -m "Release 1.0.0"
+git push origin v1.0.0
 ```
 
 ---
