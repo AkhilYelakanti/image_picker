@@ -1,5 +1,6 @@
 package com.upc.imageselector.controller;
 
+import com.upc.imageselector.config.AppProperties;
 import com.upc.imageselector.model.ProcessingResult;
 import com.upc.imageselector.service.PersistenceService;
 import com.upc.imageselector.service.ProcessingService;
@@ -10,6 +11,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 @Controller
@@ -18,6 +21,7 @@ public class UiController {
 
     private final ProcessingService processingService;
     private final PersistenceService persistenceService;
+    private final AppProperties appProperties;
 
     @GetMapping("/")
     public String index(Model model) {
@@ -27,6 +31,9 @@ public class UiController {
         model.addAttribute("manualOverrides",
                 all.values().stream().filter(ProcessingResult::isManualOverride).count());
         model.addAttribute("hasResults", !all.isEmpty());
+        String linkFile = appProperties.getImagesLinkFile();
+        model.addAttribute("linkFilePath", linkFile);
+        model.addAttribute("linkFileExists", Files.exists(Path.of(linkFile).toAbsolutePath()));
         return "upc-image-selector/index";
     }
 

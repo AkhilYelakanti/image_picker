@@ -113,8 +113,9 @@ public class UpcImageSelectorAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean
         public ApiController apiController(ProcessingService processingService,
-                                           PersistenceService persistenceService) {
-            return new ApiController(processingService, persistenceService);
+                                           PersistenceService persistenceService,
+                                           AppProperties props) {
+            return new ApiController(processingService, persistenceService, props);
         }
 
         @Bean
@@ -135,8 +136,9 @@ public class UpcImageSelectorAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean
         public UiController uiController(ProcessingService processingService,
-                                         PersistenceService persistenceService) {
-            return new UiController(processingService, persistenceService);
+                                         PersistenceService persistenceService,
+                                         AppProperties props) {
+            return new UiController(processingService, persistenceService, props);
         }
     }
 }

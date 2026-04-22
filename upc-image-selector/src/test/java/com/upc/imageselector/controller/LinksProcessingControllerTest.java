@@ -1,6 +1,7 @@
 package com.upc.imageselector.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.upc.imageselector.config.AppProperties;
 import com.upc.imageselector.dto.ImageLinksRequestDto;
 import com.upc.imageselector.dto.LinksProcessingResultDto;
 import com.upc.imageselector.service.PersistenceService;
@@ -27,6 +28,7 @@ class LinksProcessingControllerTest {
     @Autowired ObjectMapper objectMapper;
     @MockBean ProcessingService processingService;
     @MockBean PersistenceService persistenceService;
+    @MockBean AppProperties appProperties;
 
     @Test
     void postProcessLinks_returnsResultDto() throws Exception {
