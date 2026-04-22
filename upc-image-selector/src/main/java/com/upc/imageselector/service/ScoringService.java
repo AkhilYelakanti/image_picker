@@ -30,9 +30,10 @@ import java.util.Set;
  *  Subject centering      10       Product in the middle of the frame
  *  Aspect ratio           15       Portrait (tall) = front-facing shot
  *  Label presence         20       Hue diversity + transitions = label visible
+ *  Foreground shape       12       Non-white bounding-box portrait → front shot
  *  Image-type tie-break    3       type 1 preferred, weak signal only
  *  ─────────────────────  ───────
- *  Total                  138
+ *  Total                  150
  */
 @Service
 @Slf4j
@@ -81,10 +82,11 @@ public class ScoringService {
             double centerScore = scoreCentering(gray, w, h);
             double aspectScore = scoreAspectRatio(origW, origH);
             double labelScore  = scoreLabelPresence(working, w, h);
+            double fgShapeScore = scoreForegroundShape(gray, w, h);
             double typeScore   = typeBonus(imageType);
 
             double total = resScore + sharpScore + brightScore + contScore
-                         + bgScore + centerScore + aspectScore + labelScore + typeScore;
+                         + bgScore + centerScore + aspectScore + labelScore + fgShapeScore + typeScore;
 
             return ImageScore.builder()
                     .resolutionScore(r2(resScore))
@@ -95,6 +97,7 @@ public class ScoringService {
                     .centeringScore(r2(centerScore))
                     .aspectRatioScore(r2(aspectScore))
                     .labelPresenceScore(r2(labelScore))
+                    .foregroundShapeScore(r2(fgShapeScore))
                     .typeTiebreaker(r2(typeScore))
                     .totalScore(r2(total))
                     .laplacianVariance(r2(lapVar))
@@ -328,6 +331,44 @@ public class ScoringService {
         double diversityScore  = Math.min(avgHueBuckets  / 3.0, 1.0);
 
         return (transitionScore * 0.5 + diversityScore * 0.5) * 20.0;
+    }
+
+    /**
+     * Foreground shape: finds the bounding box of all non-background pixels on the
+     * working-size image and scores its aspect ratio using the same portrait-preference
+     * curve as scoreAspectRatio.
+     *
+     * A circular cap viewed from above produces a square bounding box → low score.
+     * A front-facing bottle produces a tall, narrow bounding box → high score.
+     * Max 12 pts.
+     */
+    double scoreForegroundShape(int[] gray, int w, int h) {
+        int minX = w, maxX = 0, minY = h, maxY = 0;
+        int stride = Math.max(1, Math.min(w, h) / 150);
+        boolean found = false;
+
+        for (int y = 0; y < h; y += stride) {
+            for (int x = 0; x < w; x += stride) {
+                if (gray[y * w + x] < 215) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    found = true;
+                }
+            }
+        }
+
+        if (!found || maxX <= minX) return 3.0;
+
+        int fgW = maxX - minX + 1;
+        int fgH = maxY - minY + 1;
+        double ratio = (double) fgH / fgW;
+
+        if (ratio >= 1.5) return 12.0;
+        if (ratio >= 1.2) return 9.0 + 3.0 * ((ratio - 1.2) / 0.3);
+        if (ratio >= 1.0) return 3.0 + 6.0 * ((ratio - 1.0) / 0.2);
+        return Math.max(0.0, 3.0 * ratio);
     }
 
     /**

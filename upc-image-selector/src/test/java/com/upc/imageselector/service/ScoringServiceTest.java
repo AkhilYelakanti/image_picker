@@ -127,6 +127,66 @@ class ScoringServiceTest {
         assertThat(landscape).isLessThan(square);
     }
 
+    // ── foreground shape ──────────────────────────────────────────────────────
+
+    @Test
+    void foregroundShape_tallPortraitGivesMaxScore() {
+        // Tall white image with a narrow dark rectangle in the center (bottle silhouette)
+        int w = 200, h = 400;
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, w, h);
+        g.setColor(Color.DARK_GRAY);
+        g.fillRect(75, 20, 50, 360); // narrow tall rectangle ≈ 50×360 → ratio 7.2
+        g.dispose();
+        int[] gray = scoringService.toGrayscaleArray(img);
+        assertThat(scoringService.scoreForegroundShape(gray, w, h)).isEqualTo(12.0);
+    }
+
+    @Test
+    void foregroundShape_squareGivesLowScore() {
+        // Square image with a circular cap silhouette
+        int w = 200, h = 200;
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, w, h);
+        g.setColor(new Color(180, 120, 40));
+        g.fillOval(10, 10, 180, 180); // near-square bounding box
+        g.dispose();
+        int[] gray = scoringService.toGrayscaleArray(img);
+        assertThat(scoringService.scoreForegroundShape(gray, w, h)).isLessThan(5.0);
+    }
+
+    @Test
+    void foregroundShape_bottleSilhouetteScoresHigherThanCapSilhouette() {
+        // Bottle silhouette (tall, narrow)
+        BufferedImage bottle = new BufferedImage(200, 400, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = bottle.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 200, 400);
+        g.setColor(Color.DARK_GRAY);
+        g.fillRect(75, 20, 50, 360);
+        g.dispose();
+        int[] bottleGray = scoringService.toGrayscaleArray(bottle);
+
+        // Cap silhouette (circular ≈ square bounding box)
+        BufferedImage cap = new BufferedImage(200, 200, BufferedImage.TYPE_INT_RGB);
+        g = cap.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 200, 200);
+        g.setColor(new Color(180, 120, 40));
+        g.fillOval(10, 10, 180, 180);
+        g.dispose();
+        int[] capGray = scoringService.toGrayscaleArray(cap);
+
+        double bottleScore = scoringService.scoreForegroundShape(bottleGray, 200, 400);
+        double capScore    = scoringService.scoreForegroundShape(capGray,    200, 200);
+        assertThat(bottleScore).isGreaterThan(capScore);
+        assertThat(bottleScore - capScore).isGreaterThan(6.0);
+    }
+
     // ── label presence ────────────────────────────────────────────────────────
 
     @Test
