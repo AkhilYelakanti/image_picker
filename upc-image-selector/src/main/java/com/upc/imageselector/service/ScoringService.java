@@ -12,7 +12,9 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Scores a product image using pure-Java heuristics that proxy for
@@ -26,9 +28,11 @@ import java.util.List;
  *  Contrast               15       Product clearly separated from bg
  *  Background plainness   15       White / light solid background
  *  Subject centering      10       Product in the middle of the frame
- *  Image-type tie-break    2       type 1 preferred, weak signal only
+ *  Aspect ratio           15       Portrait (tall) = front-facing shot
+ *  Label presence         20       Hue diversity + transitions = label visible
+ *  Image-type tie-break    3       type 1 preferred, weak signal only
  *  ─────────────────────  ───────
- *  Total                  102
+ *  Total                  138
  */
 @Service
 @Slf4j
@@ -75,10 +79,12 @@ public class ScoringService {
             double borderBrt  = bgRes[2];
 
             double centerScore = scoreCentering(gray, w, h);
+            double aspectScore = scoreAspectRatio(origW, origH);
+            double labelScore  = scoreLabelPresence(working, w, h);
             double typeScore   = typeBonus(imageType);
 
             double total = resScore + sharpScore + brightScore + contScore
-                         + bgScore + centerScore + typeScore;
+                         + bgScore + centerScore + aspectScore + labelScore + typeScore;
 
             return ImageScore.builder()
                     .resolutionScore(r2(resScore))
@@ -87,6 +93,8 @@ public class ScoringService {
                     .contrastScore(r2(contScore))
                     .backgroundScore(r2(bgScore))
                     .centeringScore(r2(centerScore))
+                    .aspectRatioScore(r2(aspectScore))
+                    .labelPresenceScore(r2(labelScore))
                     .typeTiebreaker(r2(typeScore))
                     .totalScore(r2(total))
                     .laplacianVariance(r2(lapVar))
@@ -252,16 +260,86 @@ public class ScoringService {
     }
 
     /**
+     * Aspect ratio score: portrait (tall) images are front-facing product shots.
+     * Square and landscape images are typically top or bottom views (cap, base).
+     * Max 15 pts.
+     */
+    double scoreAspectRatio(int origW, int origH) {
+        double ratio = (double) origH / origW;
+        if (ratio >= 1.5) return 15.0;
+        if (ratio >= 1.2) return 12.0 + 3.0 * ((ratio - 1.2) / 0.3);
+        if (ratio >= 1.0) return 7.0  + 5.0 * ((ratio - 1.0) / 0.2);
+        return Math.max(0.0, 7.0 * ratio);
+    }
+
+    /**
+     * Label presence score: detects product label via color diversity and
+     * transitions along vertical sample lines through the image center.
+     *
+     * Front-of-pack images show multiple distinct hues (brand color, graphics,
+     * text). Cap / base images show only 1–2 color regions (product body +
+     * dark center). Max 20 pts.
+     */
+    double scoreLabelPresence(BufferedImage img, int w, int h) {
+        int[] xs = {w * 3 / 8, w * 7 / 16, w / 2, w * 9 / 16, w * 5 / 8};
+        int stride = Math.max(1, h / 300);
+
+        double totalTransitions = 0;
+        double totalHueBuckets  = 0;
+
+        for (int xi : xs) {
+            int x = Math.max(0, Math.min(xi, w - 1));
+            Set<Integer> hueBuckets = new HashSet<>();
+            int prevBucket = -1;
+            int transitions = 0;
+
+            for (int y = 0; y < h; y += stride) {
+                int rgb = img.getRGB(x, y);
+                int r = (rgb >> 16) & 0xFF;
+                int g = (rgb >> 8) & 0xFF;
+                int b = rgb & 0xFF;
+
+                // Skip near-white background pixels
+                if (r > 230 && g > 230 && b > 230) {
+                    prevBucket = -1;
+                    continue;
+                }
+
+                float[] hsb = Color.RGBtoHSB(r, g, b, null);
+                // Achromatic (black/gray) → bucket 16; else quantise hue to 16 divisions
+                int bucket = (hsb[1] < 0.12f) ? 16 : (int) (hsb[0] * 16);
+
+                hueBuckets.add(bucket);
+                if (prevBucket >= 0 && bucket != prevBucket) {
+                    transitions++;
+                }
+                prevBucket = bucket;
+            }
+
+            totalTransitions += transitions;
+            totalHueBuckets  += hueBuckets.size();
+        }
+
+        double avgTransitions = totalTransitions / xs.length;
+        double avgHueBuckets  = totalHueBuckets  / xs.length;
+
+        // 3+ colour transitions and 3+ distinct hue groups → full score
+        double transitionScore = Math.min(avgTransitions / 3.0, 1.0);
+        double diversityScore  = Math.min(avgHueBuckets  / 3.0, 1.0);
+
+        return (transitionScore * 0.5 + diversityScore * 0.5) * 20.0;
+    }
+
+    /**
      * Weak image-type bonus.
      * Type 1 is conventionally the primary front-of-pack shot.
+     * Types 74/21 (close-up/detail angles) receive no bonus.
      */
     double typeBonus(String imageType) {
         if (imageType == null) return 0.0;
         return switch (imageType.trim()) {
-            case "1"  -> 2.0;
-            case "70" -> 1.5;
-            case "74" -> 1.0;
-            case "21" -> 0.5;
+            case "1"  -> 3.0;
+            case "70" -> 2.5;
             default   -> 0.0;
         };
     }
