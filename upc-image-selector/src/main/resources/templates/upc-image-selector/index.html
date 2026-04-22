@@ -92,32 +92,82 @@
         <div class="card-body p-4">
             <h5 class="card-title mb-3">Actions</h5>
 
-            <div class="d-flex flex-wrap gap-3 align-items-center">
-                <button id="btn-process"
-                        class="btn btn-primary"
-                        th:disabled="${status.state.name() == 'RUNNING'}"
-                        onclick="triggerProcess()">
-                    &#9654; Start Processing
-                </button>
-                <a th:href="@{/review}" class="btn btn-outline-secondary"
+            <!-- Current link file status -->
+            <div class="mb-3 p-3 rounded bg-light border">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="fw-semibold small text-muted">Link file:</span>
+                    <code th:text="${linkFilePath}" class="small">ImagesLink.txt</code>
+                    <span th:if="${linkFileExists}"
+                          class="badge bg-success">Found</span>
+                    <span th:unless="${linkFileExists}"
+                          class="badge bg-warning text-dark">Not Found</span>
+                </div>
+                <div class="text-muted mt-1" style="font-size:0.78rem">
+                    Override via <code>app.images-link-file</code> in your <code>application.yml</code>.
+                </div>
+            </div>
+
+            <!-- Two processing options side by side -->
+            <div class="row g-3 mb-3">
+
+                <!-- Option 1: use configured file -->
+                <div class="col-12 col-md-6">
+                    <div class="card h-100 border">
+                        <div class="card-body p-3">
+                            <h6 class="card-title">Use configured file</h6>
+                            <p class="card-text text-muted small mb-3">
+                                Run the pipeline using the link file at the path shown above.
+                            </p>
+                            <button id="btn-process"
+                                    class="btn btn-primary w-100"
+                                    th:disabled="${status.state.name() == 'RUNNING' || !linkFileExists}"
+                                    onclick="triggerProcess()">
+                                &#9654; Start Processing
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Option 2: upload a new file -->
+                <div class="col-12 col-md-6">
+                    <div class="card h-100 border">
+                        <div class="card-body p-3">
+                            <h6 class="card-title">Upload new link file</h6>
+                            <p class="card-text text-muted small mb-2">
+                                Upload a <code>.txt</code> file — it replaces the configured file
+                                and processing starts immediately.
+                            </p>
+                            <div class="input-group input-group-sm">
+                                <input type="file" id="upload-file" class="form-control"
+                                       accept=".txt,text/plain"
+                                       th:disabled="${status.state.name() == 'RUNNING'}"/>
+                                <button class="btn btn-outline-primary"
+                                        th:disabled="${status.state.name() == 'RUNNING'}"
+                                        onclick="uploadAndProcess()">
+                                    &#11014; Upload &amp; Run
+                                </button>
+                            </div>
+                            <div id="upload-error" class="text-danger mt-1 small" style="display:none"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Other actions -->
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <a th:href="@{/review}" class="btn btn-outline-secondary btn-sm"
                    th:classappend="${!hasResults} ? ' disabled' : ''">
                     &#128269; Review &amp; Override
                 </a>
-                <a th:href="@{/api/export/csv}" class="btn btn-outline-success"
+                <a th:href="@{/api/export/csv}" class="btn btn-outline-success btn-sm"
                    th:classappend="${!hasResults} ? ' disabled' : ''">
                     &#11015; Download CSV
                 </a>
-                <a th:href="@{/api/export/txt}" class="btn btn-outline-success"
+                <a th:href="@{/api/export/txt}" class="btn btn-outline-success btn-sm"
                    th:classappend="${!hasResults} ? ' disabled' : ''">
                     &#11015; Download TXT
                 </a>
             </div>
-
-            <p class="text-muted mt-3 mb-0 small">
-                Processing reads <code>ImagesLink.txt</code>, downloads images, scores them with
-                local heuristics (resolution, sharpness, brightness, contrast, background, centering),
-                and copies the best image per UPC to <code>selected_front_images/</code>.
-            </p>
         </div>
     </div>
 
@@ -130,7 +180,8 @@
                     <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
                 </thead>
                 <tbody>
-                    <tr><td><span class="badge bg-success">POST</span></td><td><code>/api/process</code></td><td>Start processing pipeline</td></tr>
+                    <tr><td><span class="badge bg-success">POST</span></td><td><code>/api/process</code></td><td>Start processing (uses configured file)</td></tr>
+                    <tr><td><span class="badge bg-success">POST</span></td><td><code>/api/process/upload</code></td><td>Upload link file and start processing</td></tr>
                     <tr><td><span class="badge bg-primary">GET</span></td><td><code>/api/status</code></td><td>Processing progress</td></tr>
                     <tr><td><span class="badge bg-primary">GET</span></td><td><code>/api/results</code></td><td>All UPC results</td></tr>
                     <tr><td><span class="badge bg-primary">GET</span></td><td><code>/api/results/{upc}</code></td><td>Single UPC result</td></tr>
@@ -160,6 +211,38 @@
             });
     }
 
+    function uploadAndProcess() {
+        const input = document.getElementById('upload-file');
+        const errDiv = document.getElementById('upload-error');
+        errDiv.style.display = 'none';
+
+        if (!input.files || input.files.length === 0) {
+            errDiv.textContent = 'Please select a file first.';
+            errDiv.style.display = 'block';
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', input.files[0]);
+
+        const uploadBtn = input.nextElementSibling;
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading…';
+
+        fetch('/api/process/upload', { method: 'POST', body: formData })
+            .then(r => {
+                if (!r.ok) return r.json().then(j => Promise.reject(j.detail || 'Upload failed'));
+                return r.json();
+            })
+            .then(() => { startPolling(); location.reload(); })
+            .catch(e => {
+                errDiv.textContent = typeof e === 'string' ? e : 'Upload failed.';
+                errDiv.style.display = 'block';
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = '⬆ Upload & Run';
+            });
+    }
+
     function startPolling() {
         const interval = setInterval(() => {
             fetch('/api/status')
@@ -172,10 +255,6 @@
                 });
         }, 2000);
     }
-
-    // Auto-poll if already running
-    const stateEl = document.querySelector('[data-state]');
-    if (document.title && /*[[${status.state.name()}]]*/ false) { /* replaced server-side */ }
 
     // Detect running state from page content and auto-start polling
     const alerts = document.querySelectorAll('.alert-info');

@@ -1,6 +1,7 @@
 package com.upc.imageselector.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.upc.imageselector.config.AppProperties;
 import com.upc.imageselector.dto.OverrideRequestDto;
 import com.upc.imageselector.exception.ResourceNotFoundException;
 import com.upc.imageselector.model.*;
@@ -28,6 +29,7 @@ class ApiControllerTest {
     @Autowired ObjectMapper objectMapper;
     @MockBean ProcessingService processingService;
     @MockBean PersistenceService persistenceService;
+    @MockBean AppProperties appProperties;
 
     @Test
     void postProcess_returnsAccepted() throws Exception {
