@@ -73,8 +73,7 @@
                 <div th:each="img : ${result.candidates}" class="col-6 col-sm-4 col-md-3 col-lg-2">
 
                     <div class="img-candidate"
-                         th:classappend="${img.filename == result.selectedFilename} ? ' selected-img' : ''"
-                         th:classappend="${result.manualOverride and img.filename == result.selectedFilename} ? ' manual-override' : ''">
+                         th:classappend="${(img.filename == result.selectedFilename ? ' selected-img' : '') + (result.manualOverride and img.filename == result.selectedFilename ? ' manual-override' : '')}">
 
                         <!-- badges -->
                         <span th:if="${img.filename == result.selectedFilename}"
@@ -100,7 +99,7 @@
                                       th:text="'Type ' + ${img.imageType}"></span>
                                 <span th:if="${img.score != null}"
                                       class="score-badge"
-                                      th:classappend="${img.score.totalScore >= 70} ? ' score-high' : (${img.score.totalScore >= 40} ? ' score-mid' : ' score-low')"
+                                      th:classappend="${img.score.totalScore >= 100 ? ' score-high' : (img.score.totalScore >= 60 ? ' score-mid' : ' score-low')}"
                                       th:text="${#numbers.formatDecimal(img.score.totalScore, 1, 1)}">0</span>
                             </div>
                             <div th:if="${img.width > 0}" class="text-muted mt-1"
@@ -123,6 +122,8 @@
                                         <tr><td>Contrast</td><td th:text="${img.score.contrastScore}"></td></tr>
                                         <tr><td>Background</td><td th:text="${img.score.backgroundScore}"></td></tr>
                                         <tr><td>Centering</td><td th:text="${img.score.centeringScore}"></td></tr>
+                                        <tr><td>Aspect ratio</td><td th:text="${img.score.aspectRatioScore}"></td></tr>
+                                        <tr><td>Label presence</td><td th:text="${img.score.labelPresenceScore}"></td></tr>
                                         <tr><td>Type bonus</td><td th:text="${img.score.typeTiebreaker}"></td></tr>
                                         <tr><td>Lap.Var</td><td th:text="${img.score.laplacianVariance}"></td></tr>
                                         <tr><td>Brightness μ</td><td th:text="${img.score.meanBrightness}"></td></tr>
