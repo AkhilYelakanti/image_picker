@@ -132,7 +132,9 @@
     <build>
         <plugins>
 
-            <!-- Do NOT repackage as executable fat-jar; produce a thin library JAR -->
+            <!-- Produces TWO artifacts:
+                   *-1.0.0.jar      → thin library JAR  (used as Maven dependency)
+                   *-1.0.0-exec.jar → fat executable JAR (java -jar for standalone use) -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -140,7 +142,10 @@
                     <execution>
                         <id>repackage</id>
                         <goals><goal>repackage</goal></goals>
-                        <configuration><skip>true</skip></configuration>
+                        <configuration>
+                            <!-- classifier keeps the thin JAR as the primary Maven artifact -->
+                            <classifier>exec</classifier>
+                        </configuration>
                     </execution>
                 </executions>
                 <configuration>

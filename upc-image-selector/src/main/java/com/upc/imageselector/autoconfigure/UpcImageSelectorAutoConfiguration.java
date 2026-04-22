@@ -1,7 +1,9 @@
 package com.upc.imageselector.autoconfigure;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.upc.imageselector.config.AppProperties;
+import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
 import com.upc.imageselector.config.AsyncConfig;
 import com.upc.imageselector.config.WebConfig;
 import com.upc.imageselector.controller.ApiController;
@@ -38,6 +40,14 @@ import org.springframework.scheduling.annotation.EnableAsync;
 @EnableConfigurationProperties(AppProperties.class)
 @Import(AsyncConfig.class)
 public class UpcImageSelectorAutoConfiguration {
+
+    // ── Jackson customizer — write dates as ISO-8601 strings, not timestamps ─
+
+    @Bean
+    @ConditionalOnMissingBean(name = "upcImageSelectorJacksonCustomizer")
+    public Jackson2ObjectMapperBuilderCustomizer upcImageSelectorJacksonCustomizer() {
+        return builder -> builder.featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    }
 
     // ── Core services (always active) ────────────────────────────────────
 
