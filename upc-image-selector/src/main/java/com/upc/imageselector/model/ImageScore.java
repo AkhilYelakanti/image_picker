@@ -14,15 +14,17 @@ import lombok.NoArgsConstructor;
 public class ImageScore {
 
     // Component scores (sum = total)
-    private double resolutionScore;   // 0-20
-    private double sharpnessScore;    // 0-25
-    private double brightnessScore;   // 0-15
-    private double contrastScore;     // 0-15
-    private double backgroundScore;   // 0-15
-    private double centeringScore;    // 0-10
-    private double typeTiebreaker;    // 0-2
+    private double resolutionScore;    // 0-20
+    private double sharpnessScore;     // 0-25
+    private double brightnessScore;    // 0-15
+    private double contrastScore;      // 0-15
+    private double backgroundScore;    // 0-15
+    private double centeringScore;     // 0-10
+    private double aspectRatioScore;   // 0-15
+    private double labelPresenceScore; // 0-20
+    private double typeTiebreaker;     // 0-3
 
-    private double totalScore;        // 0-102
+    private double totalScore;         // 0-138
 
     // Raw metrics (for debugging / display)
     private double laplacianVariance;

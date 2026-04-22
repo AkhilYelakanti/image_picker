@@ -83,13 +83,71 @@ class ScoringServiceTest {
 
     @Test
     void typeBonus_type1GivesMax() {
-        assertThat(scoringService.typeBonus("1")).isEqualTo(2.0);
+        assertThat(scoringService.typeBonus("1")).isEqualTo(3.0);
     }
 
     @Test
     void typeBonus_unknownTypeGivesZero() {
         assertThat(scoringService.typeBonus("999")).isEqualTo(0.0);
         assertThat(scoringService.typeBonus(null)).isEqualTo(0.0);
+    }
+
+    @Test
+    void typeBonus_detailTypesGiveZero() {
+        assertThat(scoringService.typeBonus("74")).isEqualTo(0.0);
+        assertThat(scoringService.typeBonus("21")).isEqualTo(0.0);
+    }
+
+    // ── aspect ratio ──────────────────────────────────────────────────────────
+
+    @Test
+    void aspectRatio_tallPortraitGivesMaxScore() {
+        assertThat(scoringService.scoreAspectRatio(1000, 1500)).isEqualTo(15.0);
+        assertThat(scoringService.scoreAspectRatio(800, 1400)).isEqualTo(15.0);
+    }
+
+    @Test
+    void aspectRatio_portraitScoresHigherThanSquare() {
+        double portrait = scoringService.scoreAspectRatio(1000, 1300);
+        double square   = scoringService.scoreAspectRatio(1000, 1000);
+        assertThat(portrait).isGreaterThan(square);
+        assertThat(portrait).isGreaterThanOrEqualTo(12.0);
+    }
+
+    @Test
+    void aspectRatio_squareScoresLower() {
+        double square = scoringService.scoreAspectRatio(1000, 1000);
+        assertThat(square).isLessThan(9.0);
+    }
+
+    @Test
+    void aspectRatio_landscapeScoresLowest() {
+        double landscape = scoringService.scoreAspectRatio(1500, 800);
+        double square    = scoringService.scoreAspectRatio(1000, 1000);
+        assertThat(landscape).isLessThan(square);
+    }
+
+    // ── label presence ────────────────────────────────────────────────────────
+
+    @Test
+    void labelPresence_multiColorBandedImageScoresHigherThanMonotone() {
+        double labelScore = scoringService.scoreLabelPresence(
+                createLabeledProductImage(), 200, 300);
+        double capScore   = scoringService.scoreLabelPresence(
+                createCapTopImage(), 200, 200);
+        assertThat(labelScore).isGreaterThan(capScore);
+    }
+
+    @Test
+    void labelPresence_capImageScoresLowerThanFront() {
+        double capScore   = scoringService.scoreLabelPresence(createCapTopImage(), 200, 200);
+        double frontScore = scoringService.scoreLabelPresence(createLabeledProductImage(), 200, 300);
+        // Cap has 2 color regions (amber body + dark center); front has 5+
+        assertThat(capScore).isLessThan(frontScore);
+        // Combined with aspect ratio penalty for square caps, front always wins
+        double capTotal   = capScore + scoringService.scoreAspectRatio(200, 200);
+        double frontTotal = frontScore + scoringService.scoreAspectRatio(200, 300);
+        assertThat(frontTotal).isGreaterThan(capTotal);
     }
 
     @Test
@@ -187,5 +245,41 @@ class ScoringServiceTest {
         Path file = tempDir.resolve(name);
         ImageIO.write(img, "jpg", file.toFile());
         return file;
+    }
+
+    /** Simulates a front-of-pack bottle: amber neck → orange label with green/red graphics → amber body. */
+    private BufferedImage createLabeledProductImage() {
+        int w = 200, h = 300;
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, w, h);
+        g.setColor(new Color(200, 150, 50));   // amber bottle body
+        g.fillRect(60, 20, 80, 260);
+        g.setColor(new Color(240, 110, 20));   // orange label band
+        g.fillRect(60, 90, 80, 120);
+        g.setColor(new Color(50, 150, 60));    // green leaf graphic
+        g.fillRect(70, 100, 30, 30);
+        g.setColor(new Color(180, 60, 40));    // red fruit graphic
+        g.fillRect(110, 100, 25, 25);
+        g.setColor(Color.BLACK);               // brand text
+        g.fillRect(70, 145, 60, 12);
+        g.dispose();
+        return img;
+    }
+
+    /** Simulates a cap/top view: amber circle on white with dark center — 2 color regions. */
+    private BufferedImage createCapTopImage() {
+        int w = 200, h = 200;
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, w, h);
+        g.setColor(new Color(200, 150, 50));   // amber product body
+        g.fillOval(10, 10, 180, 180);
+        g.setColor(new Color(25, 25, 25));     // dark cap center
+        g.fillOval(55, 55, 90, 90);
+        g.dispose();
+        return img;
     }
 }
