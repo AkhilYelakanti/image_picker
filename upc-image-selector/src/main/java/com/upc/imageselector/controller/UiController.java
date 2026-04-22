@@ -27,7 +27,7 @@ public class UiController {
         model.addAttribute("manualOverrides",
                 all.values().stream().filter(ProcessingResult::isManualOverride).count());
         model.addAttribute("hasResults", !all.isEmpty());
-        return "index";
+        return "upc-image-selector/index";
     }
 
     @GetMapping("/review")
@@ -51,7 +51,7 @@ public class UiController {
 
         model.addAttribute("totalCount", all.size());
         model.addAttribute("status", processingService.getStatus());
-        return "review";
+        return "upc-image-selector/review";
     }
 
     @GetMapping("/review/{upc}")

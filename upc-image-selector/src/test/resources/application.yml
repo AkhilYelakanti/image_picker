@@ -1,0 +1,15 @@
+spring:
+  thymeleaf:
+    cache: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.upc.imageselector: DEBUG
+    root: WARN
