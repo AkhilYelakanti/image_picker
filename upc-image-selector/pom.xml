@@ -51,7 +51,6 @@
     <!-- ── properties ───────────────────────────────────────────────────── -->
     <properties>
         <java.version>17</java.version>
-        <thumbnailator.version>0.4.20</thumbnailator.version>
         <commons-csv.version>1.10.0</commons-csv.version>
     </properties>
 
@@ -98,13 +97,6 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
-        </dependency>
-
-        <!-- Image resizing / scoring (pure Java, no native libs) -->
-        <dependency>
-            <groupId>net.coobird</groupId>
-            <artifactId>thumbnailator</artifactId>
-            <version>${thumbnailator.version}</version>
         </dependency>
 
         <!-- CSV export -->

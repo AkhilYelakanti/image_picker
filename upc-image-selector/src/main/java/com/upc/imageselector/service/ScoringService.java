@@ -4,7 +4,6 @@ import com.upc.imageselector.config.AppProperties;
 import com.upc.imageselector.model.ImageScore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import net.coobird.thumbnailator.Thumbnails;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
@@ -387,14 +386,42 @@ public class ScoringService {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    private BufferedImage downsample(BufferedImage src, int maxSide) throws Exception {
+    private BufferedImage downsample(BufferedImage src, int maxSide) {
         int w = src.getWidth();
         int h = src.getHeight();
         if (w <= maxSide && h <= maxSide) return src;
         double scale = (double) maxSide / Math.max(w, h);
         int nw = Math.max(1, (int) (w * scale));
         int nh = Math.max(1, (int) (h * scale));
-        return Thumbnails.of(src).size(nw, nh).asBufferedImage();
+        return progressiveScale(src, nw, nh);
+    }
+
+    /**
+     * Progressive bilinear downsampling: halves dimensions repeatedly until within
+     * 2× of the target, then does one final precise scale. This avoids the aliasing
+     * artifacts that occur when jumping from a large image directly to a small one in
+     * a single step — the same strategy thumbnailator uses internally.
+     */
+    private static BufferedImage progressiveScale(BufferedImage src, int targetW, int targetH) {
+        int curW = src.getWidth();
+        int curH = src.getHeight();
+        BufferedImage cur = src;
+        while (curW > targetW * 2 || curH > targetH * 2) {
+            curW = Math.max(curW / 2, targetW);
+            curH = Math.max(curH / 2, targetH);
+            cur  = bilinearScale(cur, curW, curH);
+        }
+        return (curW == targetW && curH == targetH) ? cur : bilinearScale(cur, targetW, targetH);
+    }
+
+    private static BufferedImage bilinearScale(BufferedImage src, int w, int h) {
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.setRenderingHint(RenderingHints.KEY_RENDERING,     RenderingHints.VALUE_RENDER_QUALITY);
+        g.drawImage(src, 0, 0, w, h, null);
+        g.dispose();
+        return out;
     }
 
     int[] toGrayscaleArray(BufferedImage img) {
