@@ -127,6 +127,66 @@ class ScoringServiceTest {
         assertThat(landscape).isLessThan(square);
     }
 
+    // ── horizontal banding ────────────────────────────────────────────────────
+
+    @Test
+    void horizontalBanding_cupFrontScoresHigher() {
+        // Cup front: orange top + purple label band + orange bottom → distinct zones
+        int w = 200, h = 300;
+        BufferedImage cup = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = cup.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, w, h);
+        g.setColor(new Color(230, 110, 20));   // orange cup body (top + bottom)
+        g.fillRect(20, 10, 160, 280);
+        g.setColor(new Color(100, 30, 160));   // purple label band in the middle
+        g.fillRect(20, 100, 160, 100);
+        g.dispose();
+        int[] gray = scoringService.toGrayscaleArray(cup);
+        assertThat(scoringService.scoreHorizontalBanding(gray, w, h)).isGreaterThan(8.0);
+    }
+
+    @Test
+    void horizontalBanding_uniformLidScoresLow() {
+        // Lid: solid uniform purple circle — no horizontal colour variation
+        int w = 200, h = 200;
+        BufferedImage lid = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = lid.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, w, h);
+        g.setColor(new Color(100, 30, 160));   // solid purple everywhere
+        g.fillOval(10, 10, 180, 180);
+        g.dispose();
+        int[] gray = scoringService.toGrayscaleArray(lid);
+        assertThat(scoringService.scoreHorizontalBanding(gray, w, h)).isLessThan(3.0);
+    }
+
+    @Test
+    void horizontalBanding_cupFrontWinsOverLid() {
+        // Cup front
+        int w = 200, h = 300;
+        BufferedImage cup = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = cup.createGraphics();
+        g.setColor(Color.WHITE);  g.fillRect(0, 0, w, h);
+        g.setColor(new Color(230, 110, 20));   g.fillRect(20, 10, 160, 280);  // orange body
+        g.setColor(new Color(100, 30, 160));   g.fillRect(20, 100, 160, 100); // purple label
+        g.dispose();
+        int[] cupGray = scoringService.toGrayscaleArray(cup);
+
+        // Lid
+        BufferedImage lid = new BufferedImage(200, 200, BufferedImage.TYPE_INT_RGB);
+        g = lid.createGraphics();
+        g.setColor(Color.WHITE);  g.fillRect(0, 0, 200, 200);
+        g.setColor(new Color(100, 30, 160));   g.fillOval(10, 10, 180, 180);
+        g.dispose();
+        int[] lidGray = scoringService.toGrayscaleArray(lid);
+
+        double cupScore = scoringService.scoreHorizontalBanding(cupGray, w, h);
+        double lidScore = scoringService.scoreHorizontalBanding(lidGray, 200, 200);
+        assertThat(cupScore).isGreaterThan(lidScore);
+        assertThat(cupScore - lidScore).isGreaterThan(5.0);
+    }
+
     // ── foreground shape ──────────────────────────────────────────────────────
 
     @Test

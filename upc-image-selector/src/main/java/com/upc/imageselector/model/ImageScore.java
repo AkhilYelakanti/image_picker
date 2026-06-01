@@ -20,12 +20,13 @@ public class ImageScore {
     private double contrastScore;      // 0-15
     private double backgroundScore;    // 0-15
     private double centeringScore;     // 0-10
-    private double aspectRatioScore;    // 0-15
-    private double labelPresenceScore;  // 0-20
+    private double aspectRatioScore;      // 0-15
+    private double labelPresenceScore;   // 0-20
     private double foregroundShapeScore; // 0-12
-    private double typeTiebreaker;      // 0-3
+    private double horizontalBandingScore; // 0-12
+    private double typeTiebreaker;       // 0-3
 
-    private double totalScore;          // 0-150
+    private double totalScore;           // 0-162
 
     // Raw metrics (for debugging / display)
     private double laplacianVariance;

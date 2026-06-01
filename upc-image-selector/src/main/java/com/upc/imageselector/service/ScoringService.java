@@ -30,9 +30,10 @@ import java.util.Set;
  *  Aspect ratio           15       Portrait (tall) = front-facing shot
  *  Label presence         20       Hue diversity + transitions = label visible
  *  Foreground shape       12       Non-white bounding-box portrait → front shot
+ *  Horizontal banding     12       Distinct color zones top/mid/bottom → front face
  *  Image-type tie-break    3       type 1 preferred, weak signal only
  *  ─────────────────────  ───────
- *  Total                  150
+ *  Total                  162
  */
 @Service
 @Slf4j
@@ -78,14 +79,16 @@ public class ScoringService {
             double borderSat  = bgRes[1];
             double borderBrt  = bgRes[2];
 
-            double centerScore = scoreCentering(gray, w, h);
-            double aspectScore = scoreAspectRatio(origW, origH);
-            double labelScore  = scoreLabelPresence(working, w, h);
+            double centerScore  = scoreCentering(gray, w, h);
+            double aspectScore  = scoreAspectRatio(origW, origH);
+            double labelScore   = scoreLabelPresence(working, w, h);
             double fgShapeScore = scoreForegroundShape(gray, w, h);
-            double typeScore   = typeBonus(imageType);
+            double bandingScore = scoreHorizontalBanding(gray, w, h);
+            double typeScore    = typeBonus(imageType);
 
             double total = resScore + sharpScore + brightScore + contScore
-                         + bgScore + centerScore + aspectScore + labelScore + fgShapeScore + typeScore;
+                         + bgScore + centerScore + aspectScore + labelScore
+                         + fgShapeScore + bandingScore + typeScore;
 
             return ImageScore.builder()
                     .resolutionScore(r2(resScore))
@@ -97,6 +100,7 @@ public class ScoringService {
                     .aspectRatioScore(r2(aspectScore))
                     .labelPresenceScore(r2(labelScore))
                     .foregroundShapeScore(r2(fgShapeScore))
+                    .horizontalBandingScore(r2(bandingScore))
                     .typeTiebreaker(r2(typeScore))
                     .totalScore(r2(total))
                     .laplacianVariance(r2(lapVar))
@@ -330,6 +334,47 @@ public class ScoringService {
         double diversityScore  = Math.min(avgHueBuckets  / 3.0, 1.0);
 
         return (transitionScore * 0.5 + diversityScore * 0.5) * 20.0;
+    }
+
+    /**
+     * Horizontal color banding: divides the non-white content into three equal
+     * horizontal zones and measures the variance of their mean grayscale values.
+     *
+     * A front-of-pack product image typically has distinct colour zones along its
+     * height — e.g. orange cup body / purple label block / orange cup base, or amber
+     * bottle neck / colourful label / amber body.  A lid, base, or back image is
+     * uniform in tone throughout (same colour from top to bottom), so its between-zone
+     * variance is near zero.
+     *
+     * This is the primary discriminator for cup/tub products where the foreground
+     * bounding box is equally square for both the front face and the lid.  Max 12 pts.
+     */
+    double scoreHorizontalBanding(int[] gray, int w, int h) {
+        int h3 = Math.max(1, h / 3);
+        double[] zoneSum = new double[3];
+        int[]    zoneCnt = new int[3];
+        int stride = Math.max(1, Math.min(w, h) / 100);
+
+        for (int y = 0; y < h; y += stride) {
+            int zone = Math.min(y / h3, 2);
+            for (int x = 0; x < w; x += stride) {
+                int v = gray[y * w + x];
+                if (v >= 215) continue;
+                zoneSum[zone] += v;
+                zoneCnt[zone]++;
+            }
+        }
+
+        for (int cnt : zoneCnt) {
+            if (cnt < 10) return 4.0;
+        }
+
+        double[] m = {zoneSum[0] / zoneCnt[0], zoneSum[1] / zoneCnt[1], zoneSum[2] / zoneCnt[2]};
+        double avg = (m[0] + m[1] + m[2]) / 3.0;
+        double variance = ((m[0]-avg)*(m[0]-avg) + (m[1]-avg)*(m[1]-avg) + (m[2]-avg)*(m[2]-avg)) / 3.0;
+
+        // Variance ≥ 400 (≈ one zone differs by ~35 grey levels) → full 12 pts
+        return Math.min(variance / 400.0, 1.0) * 12.0;
     }
 
     /**
